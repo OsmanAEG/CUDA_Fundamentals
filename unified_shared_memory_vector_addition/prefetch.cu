@@ -37,22 +37,45 @@ int main(){
   cudaMallocManaged(&B_shared, bytes);
   cudaMallocManaged(&C_shared, bytes);
 
+  // getting device id
+  int device_id = cudaGetDevice(&device_id);
+
+  // hints
+  cudaMemAdvise(A_shared, bytes, cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId);
+  cudaMemAdvise(B_shared, bytes, cudaMemAdviseSetPreferredLocation, cudaCpuDeviceId);
+
+  // prefetching the output vector to the device
+  cudaMemPrefetchAsync(C_shared, bytes, device_id);
+
   // setting random values for input vectors
   for(int i = 0; i < N; ++i){
     A_shared[i] = rand()%100;
     B_shared[i] = rand()%100;
   }
 
+  // hinting to only read input vectors on the device
+  cudaMemAdvise(A_shared, bytes, cudaMemAdviseSetReadMostly, device_id);
+  cudaMemAdvise(B_shared, bytes, cudaMemAdviseSetReadMostly, device_id);
+
+  // prefetching output vectors to the device
+  cudaMemPrefetchAsync(A_shared, bytes, device_id);
+  cudaMemPrefetchAsync(B_shared, bytes, device_id);
+
   // threads per block
-  int number_of_threads = 1 << 10;
+  int block_size = 1 << 10;
 
-  // number of blocks
-  int number_of_blocks = (N + number_of_threads - 1)/number_of_threads;
+  // blocks per grid
+  int grid_size = (N + block_size - 1)/block_size;
 
-  vector_addition<<<number_of_blocks, number_of_threads>>>(A_shared, B_shared, C_shared, N);
+  vector_addition<<<grid_size, block_size>>>(A_shared, B_shared, C_shared, N);
 
   // wait to complete kernel execution
   cudaDeviceSynchronize();
+
+  // prefetch back to host
+  cudaMemPrefetchAsync(A_shared, bytes, cudaCpuDeviceId);
+  cudaMemPrefetchAsync(B_shared, bytes, cudaCpuDeviceId);
+  cudaMemPrefetchAsync(C_shared, bytes, cudaCpuDeviceId);
 
   // checking results
   vector_addition_check(A_shared, B_shared, C_shared, N);
@@ -66,4 +89,3 @@ int main(){
 
   return 0;
 }
-
